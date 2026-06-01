@@ -621,7 +621,12 @@
     <span id="bt-dot" class="status-dot"></span>
     <span id="bt-label">BMS</span>
     &nbsp;
-    <span id="gps-dot" class="status-dot"></span>
+    <span id="gps-bars" style="display:inline-flex;align-items:flex-end;gap:1.5px;height:14px;margin-right:4px;">
+      <span class="gps-bar" style="width:3px;height:30%;background:var(--muted);border-radius:1px;"></span>
+      <span class="gps-bar" style="width:3px;height:55%;background:var(--muted);border-radius:1px;"></span>
+      <span class="gps-bar" style="width:3px;height:75%;background:var(--muted);border-radius:1px;"></span>
+      <span class="gps-bar" style="width:3px;height:100%;background:var(--muted);border-radius:1px;"></span>
+    </span>
     <span id="gps-label">GPS</span>
   </div>
 </header>
@@ -839,7 +844,7 @@ function toggleGPS() {
 function startGPS() {
   if (!navigator.geolocation) { toast('❌ GPS non supportato'); return; }
   toast('📍 Ricerca GPS...');
-  document.getElementById('gps-dot').className = 'status-dot searching';
+  updateGPSBars('searching');
 
   state.watchId = navigator.geolocation.watchPosition(onGPS, onGPSError, {
     enableHighAccuracy: true,
@@ -859,7 +864,7 @@ function stopGPS() {
   if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
   saveTrip();
   state.gpsActive = false;
-  document.getElementById('gps-dot').className = 'status-dot';
+  updateGPSBars('off');
   document.getElementById('gps-label').textContent = 'GPS';
   document.getElementById('btn-gps').classList.remove('active');
   document.getElementById('btn-gps').textContent = '📍 GPS';
@@ -868,7 +873,7 @@ function stopGPS() {
 }
 
 function onGPS(pos) {
-  document.getElementById('gps-dot').className = 'status-dot connected';
+  updateGPSBars('connected');
   document.getElementById('gps-label').textContent = 'GPS';
 
   const spd = pos.coords.speed != null ? pos.coords.speed * 3.6 : 0;
@@ -886,7 +891,7 @@ function onGPS(pos) {
 }
 
 function onGPSError(err) {
-  document.getElementById('gps-dot').className = 'status-dot';
+  updateGPSBars('off');
   toast('❌ GPS: ' + err.message);
 }
 
@@ -1499,6 +1504,43 @@ async function loadWeather() {
 // Load weather on start and every 10 minutes
 loadWeather();
 setInterval(loadWeather, 600000);
+
+// ═══════════════════════════════════════════════
+// GPS SIGNAL BARS
+// ═══════════════════════════════════════════════
+function updateGPSBars(status, accuracy) {
+  const bars = document.querySelectorAll('.gps-bar');
+  if (!bars.length) return;
+
+  let level = 0; // 0=off, 1-4 bars
+  let color = 'var(--muted)';
+
+  if (status === 'searching') {
+    // Animate pulse on all bars
+    bars.forEach(b => {
+      b.style.background = 'var(--warn)';
+      b.style.opacity = '0.5';
+    });
+    // Pulse animation
+    bars[0].style.animation = 'pulse 1s infinite';
+    return;
+  } else if (status === 'connected') {
+    // Calculate bars from accuracy (meters)
+    // <5m = 4 bars, <10m = 3, <20m = 2, >=20m = 1
+    if (accuracy === undefined || accuracy <= 5) level = 4;
+    else if (accuracy <= 10) level = 3;
+    else if (accuracy <= 20) level = 2;
+    else level = 1;
+    color = 'var(--accent2)';
+  }
+
+  bars.forEach((b, i) => {
+    b.style.animation = '';
+    b.style.opacity = '1';
+    b.style.background = i < level ? color : 'var(--muted)';
+    b.style.opacity = i < level ? '1' : '0.25';
+  });
+}
 
 // ═══════════════════════════════════════════════
 // APP OPENERS
