@@ -411,6 +411,13 @@
     color: var(--accent2);
   }
   .btn-gps.active { background: rgba(57,255,20,0.1); }
+  .btn-history {
+    background: transparent;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    flex: 0.5;
+    font-size: 1.1rem;
+  }
   .btn-reset {
     background: transparent;
     border: 1.5px solid var(--muted);
@@ -559,6 +566,15 @@
   </div>
 </div>
 
+<!-- HISTORY MODAL -->
+<div id="history-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:300;overflow-y:auto;padding:16px 12px 100px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <span style="font-family:'Rajdhani',sans-serif;font-size:1.1rem;font-weight:700;letter-spacing:3px;color:var(--accent)">📋 STORICO VIAGGI</span>
+    <button onclick="closeHistory()" style="background:transparent;border:1.5px solid var(--muted);color:var(--muted);border-radius:6px;padding:6px 14px;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:2px;font-size:0.8rem;">✕ CHIUDI</button>
+  </div>
+  <div id="history-list"></div>
+</div>
+
 <!-- TRIP -->
 <div class="section">
   <div class="section-header">
@@ -566,20 +582,12 @@
   </div>
   <div class="trip-grid">
     <div class="trip-metric">
-      <div class="trip-metric-label">V. Media</div>
-      <div class="trip-metric-value" id="avgspeed-display">—</div>
-    </div>
-    <div class="trip-metric">
-      <div class="trip-metric-label">V. Massima</div>
-      <div class="trip-metric-value" id="maxspeed-display2">—</div>
-    </div>
-    <div class="trip-metric">
-      <div class="trip-metric-label">Distanza</div>
+      <div class="trip-metric-label">ODO</div>
       <div class="trip-metric-value" id="dist-display2">0.00 km</div>
     </div>
     <div class="trip-metric">
-      <div class="trip-metric-label">Tempo</div>
-      <div class="trip-metric-value" id="time-display2">00:00</div>
+      <div class="trip-metric-label">V. Media</div>
+      <div class="trip-metric-value" id="avgspeed-display">—</div>
     </div>
   </div>
 </div>
@@ -613,6 +621,9 @@
   </button>
   <button class="btn btn-gps" id="btn-gps" onclick="toggleGPS()">
     📍 GPS
+  </button>
+  <button class="btn btn-history" id="btn-history" onclick="openHistory()">
+    📋
   </button>
   <button class="btn btn-reset" onclick="resetTrip()">
     ↺ Reset
@@ -707,6 +718,7 @@ function startGPS() {
 
 function stopGPS() {
   if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
+  saveTrip();
   state.gpsActive = false;
   document.getElementById('gps-dot').className = 'status-dot';
   document.getElementById('gps-label').textContent = 'GPS';
@@ -729,6 +741,7 @@ function onGPS(pos) {
     document.getElementById('dist-display').innerHTML =
       (state.distance / 1000).toFixed(2) + ' <span>km</span>';
     document.getElementById('dist-display2').textContent = (state.distance / 1000).toFixed(2) + ' km';
+
   }
   state.lastPos = pos.coords;
 }
@@ -742,7 +755,7 @@ function setSpeed(spd) {
   state.speed = spd;
   if (spd > state.maxSpeed) {
     state.maxSpeed = spd;
-    document.getElementById('maxspeed-display2').textContent = state.maxSpeed.toFixed(0) + ' km/h';
+
   }
 
   // Speed samples for average
@@ -789,20 +802,125 @@ function updateTimer() {
   const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
   const mm = String(Math.floor(elapsed/60)).padStart(2,'0');
   const ss = String(elapsed % 60).padStart(2,'0');
-  document.getElementById('time-display2').textContent = mm + ':' + ss;
+
+}
+
+function saveTrip() {
+  if (state.distance < 50) return; // ignore trips < 50m
+  const elapsed = state.startTime ? Math.floor((Date.now() - state.startTime) / 1000) : 0;
+  if (elapsed < 10) return;
+  const avg = state.speedSamples.length
+    ? state.speedSamples.reduce((a,b)=>a+b,0) / state.speedSamples.length
+    : 0;
+  const trip = {
+    date: new Date().toLocaleDateString('it-IT', {day:'2-digit',month:'2-digit',year:'numeric'}),
+    time: new Date().toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'}),
+    distance: (state.distance / 1000).toFixed(2),
+    duration: elapsed,
+    avgSpeed: avg.toFixed(1),
+    maxSpeed: state.maxSpeed.toFixed(0),
+  };
+  const history = JSON.parse(localStorage.getItem('ebike-history') || '[]');
+  history.unshift(trip);
+  if (history.length > 50) history.pop(); // keep last 50
+  localStorage.setItem('ebike-history', JSON.stringify(history));
+  toast('💾 Viaggio salvato!');
+}
+
+function formatDuration(s) {
+  const h = Math.floor(s/3600);
+  const m = Math.floor((s%3600)/60);
+  const ss = s%60;
+  if (h > 0) return h+'h '+String(m).padStart(2,'0')+'m';
+  return String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');
+}
+
+function openHistory() {
+  const history = JSON.parse(localStorage.getItem('ebike-history') || '[]');
+  const list = document.getElementById('history-list');
+  if (history.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:var(--muted);padding:40px;font-size:0.85rem;letter-spacing:2px;">Nessun viaggio salvato</div>';
+  } else {
+    // Total stats
+    const totalDist = history.reduce((a,b)=>a+parseFloat(b.distance),0);
+    const totalTime = history.reduce((a,b)=>a+b.duration,0);
+    const topSpeed = Math.max(...history.map(t=>parseFloat(t.maxSpeed)));
+    list.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px;">
+        <div style="background:var(--surface2);padding:12px;text-align:center;">
+          <div style="font-size:0.6rem;color:var(--muted);letter-spacing:2px;margin-bottom:4px;">TOTALE KM</div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:1.2rem;color:var(--accent)">${totalDist.toFixed(1)}</div>
+        </div>
+        <div style="background:var(--surface2);padding:12px;text-align:center;">
+          <div style="font-size:0.6rem;color:var(--muted);letter-spacing:2px;margin-bottom:4px;">TEMPO TOT</div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:1.2rem;color:var(--accent)">${formatDuration(totalTime)}</div>
+        </div>
+        <div style="background:var(--surface2);padding:12px;text-align:center;">
+          <div style="font-size:0.6rem;color:var(--muted);letter-spacing:2px;margin-bottom:4px;">V. MAX</div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:1.2rem;color:var(--accent)">${topSpeed} km/h</div>
+        </div>
+      </div>
+      ${history.map((t,i) => `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <span style="font-family:'Rajdhani',sans-serif;font-weight:700;font-size:0.9rem;color:var(--text)">${t.date} — ${t.time}</span>
+            <button onclick="deleteTrip(${i})" style="background:transparent;border:none;color:var(--muted);font-size:1rem;cursor:pointer;">🗑</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;">
+            <div>
+              <div style="font-size:0.55rem;color:var(--muted);letter-spacing:1px;">DIST</div>
+              <div style="font-family:'Share Tech Mono',monospace;font-size:0.95rem;color:var(--accent2)">${t.distance} km</div>
+            </div>
+            <div>
+              <div style="font-size:0.55rem;color:var(--muted);letter-spacing:1px;">TEMPO</div>
+              <div style="font-family:'Share Tech Mono',monospace;font-size:0.95rem;">${formatDuration(t.duration)}</div>
+            </div>
+            <div>
+              <div style="font-size:0.55rem;color:var(--muted);letter-spacing:1px;">V.MEDIA</div>
+              <div style="font-family:'Share Tech Mono',monospace;font-size:0.95rem;">${t.avgSpeed} km/h</div>
+            </div>
+            <div>
+              <div style="font-size:0.55rem;color:var(--muted);letter-spacing:1px;">V.MAX</div>
+              <div style="font-family:'Share Tech Mono',monospace;font-size:0.95rem;color:var(--warn)">${t.maxSpeed} km/h</div>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+      <button onclick="clearHistory()" style="width:100%;margin-top:6px;padding:12px;background:transparent;border:1.5px solid var(--danger);color:var(--danger);border-radius:8px;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:2px;font-size:0.85rem;">🗑 CANCELLA TUTTO</button>
+    `;
+  }
+  document.getElementById('history-modal').style.display = 'block';
+}
+
+function closeHistory() {
+  document.getElementById('history-modal').style.display = 'none';
+}
+
+function deleteTrip(index) {
+  const history = JSON.parse(localStorage.getItem('ebike-history') || '[]');
+  history.splice(index, 1);
+  localStorage.setItem('ebike-history', JSON.stringify(history));
+  openHistory();
+}
+
+function clearHistory() {
+  if (confirm('Cancellare tutti i viaggi?')) {
+    localStorage.removeItem('ebike-history');
+    openHistory();
+  }
 }
 
 function resetTrip() {
+  saveTrip();
   state.distance = 0;
   state.maxSpeed = 0;
   state.startTime = Date.now();
   state.speedSamples = [];
   state.lastPos = null;
   document.getElementById('dist-display').innerHTML = '0.00 <span>km</span>';
-  document.getElementById('avgspeed-display').textContent = '—';
   document.getElementById('dist-display2').textContent = '0.00 km';
-  document.getElementById('maxspeed-display2').textContent = '—';
-  document.getElementById('time-display2').textContent = '00:00';
+  document.getElementById('avgspeed-display').textContent = '—';
+  document.getElementById('maxspeed-display2') && (document.getElementById('maxspeed-display2').textContent = '—');
   toast('↺ Trip azzerato');
 }
 
