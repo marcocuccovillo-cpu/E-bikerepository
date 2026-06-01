@@ -668,6 +668,25 @@
   <div id="history-list"></div>
 </div>
 
+<!-- WEATHER -->
+<div class="section" id="weather-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span id="weather-icon" style="font-size:1.8rem;">🌡️</span>
+      <div>
+        <div id="weather-temp" style="font-family:'Share Tech Mono',monospace;font-size:1.4rem;color:var(--accent);">—°C</div>
+        <div id="weather-desc" style="font-size:0.65rem;color:var(--muted);letter-spacing:1px;text-transform:uppercase;">Caricamento meteo...</div>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:0.6rem;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px;">Vento</div>
+      <div id="weather-wind" style="font-family:'Share Tech Mono',monospace;font-size:1rem;color:var(--text);">— km/h</div>
+      <div style="font-size:0.6rem;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:4px;margin-bottom:2px;">Umidità</div>
+      <div id="weather-humid" style="font-family:'Share Tech Mono',monospace;font-size:1rem;color:var(--text);">—%</div>
+    </div>
+  </div>
+</div>
+
 <!-- TRIP -->
 <div class="section">
   <div class="section-header">
@@ -1233,19 +1252,26 @@ function updateBatteryUI() {
   const pctClass = s.soc < 15 ? 'danger' : s.soc < 30 ? 'warn' : '';
   const fillClass = s.soc < 15 ? 'danger' : s.soc < 30 ? 'warn' : '';
 
-  // Range estimate: base 75km / 20Ah = 3.75 km/Ah
-  // Refine with real consumption if riding
+  // Range estimate - always base on 75km/20Ah = 3.75 km/Ah
+  // Only blend real consumption after 3km+ to avoid noise
   const BASE_KM_PER_AH = 3.75;
   const distKm = s.distance / 1000;
   const ahConsumed = s.fullAh - s.remainAh;
   let kmPerAh = BASE_KM_PER_AH;
-  if (distKm > 0.3 && ahConsumed > 0.1) {
-    kmPerAh = distKm / ahConsumed;
-    // Blend with base (80% real, 20% base) to avoid spikes
-    kmPerAh = kmPerAh * 0.8 + BASE_KM_PER_AH * 0.2;
+  let rangeNote = 'stima base (75km/carica)';
+  if (distKm > 3.0 && ahConsumed > 0.5) {
+    const realKmPerAh = distKm / ahConsumed;
+    // Only use real if it's reasonable (1-6 km/Ah range)
+    if (realKmPerAh > 1 && realKmPerAh < 6) {
+      // Weighted blend: more weight to real as distance increases, max 60%
+      const weight = Math.min((distKm - 3) / 20, 0.6);
+      kmPerAh = realKmPerAh * weight + BASE_KM_PER_AH * (1 - weight);
+      rangeNote = 'consumo reale';
+    }
   }
-  const rangeKm = (kmPerAh * s.remainAh).toFixed(1);
-  const rangeNote = (distKm > 0.3 && ahConsumed > 0.1) ? 'consumo reale' : 'stima base';
+  // Never let range exceed full-battery estimate
+  const maxRange = BASE_KM_PER_AH * s.fullAh;
+  const rangeKm = Math.min(kmPerAh * s.remainAh, maxRange * (s.soc / 100) * 1.05).toFixed(1);
 
   document.getElementById('batt-content').innerHTML = `
     <div class="batt-compact-row">
@@ -1424,6 +1450,55 @@ function openApp(app) {
   a.click();
   document.body.removeChild(a);
 }
+
+// ═══════════════════════════════════════════════
+// WEATHER (Open-Meteo, no API key needed)
+// ═══════════════════════════════════════════════
+const WMO_ICONS = {
+  0:'☀️', 1:'🌤️', 2:'⛅', 3:'☁️',
+  45:'🌫️', 48:'🌫️',
+  51:'🌦️', 53:'🌦️', 55:'🌧️',
+  61:'🌧️', 63:'🌧️', 65:'🌧️',
+  71:'❄️', 73:'❄️', 75:'❄️',
+  80:'🌦️', 81:'🌧️', 82:'⛈️',
+  95:'⛈️', 96:'⛈️', 99:'⛈️'
+};
+const WMO_DESC = {
+  0:'Sereno', 1:'Poche nuvole', 2:'Parzialmente nuvoloso', 3:'Nuvoloso',
+  45:'Nebbia', 48:'Nebbia',
+  51:'Pioggerella', 53:'Pioggerella', 55:'Pioggerella intensa',
+  61:'Pioggia', 63:'Pioggia', 65:'Pioggia forte',
+  71:'Neve', 73:'Neve', 75:'Neve intensa',
+  80:'Rovesci', 81:'Rovesci', 82:'Rovesci forti',
+  95:'Temporale', 96:'Temporale', 99:'Temporale forte'
+};
+
+async function loadWeather() {
+  try {
+    // Get position first
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude: lat, longitude: lon } = pos.coords;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&wind_speed_unit=kmh&timezone=auto`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const c = data.current;
+      const code = c.weather_code;
+      document.getElementById('weather-icon').textContent = WMO_ICONS[code] || '🌡️';
+      document.getElementById('weather-temp').textContent = c.temperature_2m.toFixed(1) + '°C';
+      document.getElementById('weather-desc').textContent = WMO_DESC[code] || 'Meteo';
+      document.getElementById('weather-wind').textContent = c.wind_speed_10m.toFixed(0) + ' km/h';
+      document.getElementById('weather-humid').textContent = c.relative_humidity_2m + '%';
+    }, () => {
+      document.getElementById('weather-desc').textContent = 'Posizione non disponibile';
+    }, { timeout: 5000 });
+  } catch(e) {
+    document.getElementById('weather-desc').textContent = 'Meteo non disponibile';
+  }
+}
+
+// Load weather on start and every 10 minutes
+loadWeather();
+setInterval(loadWeather, 600000);
 
 // ═══════════════════════════════════════════════
 // APP OPENERS
