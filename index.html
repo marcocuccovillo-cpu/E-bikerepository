@@ -674,8 +674,7 @@
 </div>
 
 <!-- WEATHER -->
-<div class="section" id="weather-section">
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;">
+<div class="section" id="weather-section">  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;">
     <div style="display:flex;align-items:center;gap:10px;">
       <span id="weather-icon" style="font-size:1.8rem;">🌡️</span>
       <div>
@@ -721,8 +720,7 @@
 </div>
 
 <!-- CELLS -->
-<div class="section" id="cells-section" style="display:none">
-  <div class="section-header">
+<div class="section" id="cells-section" style="display:none">  <div class="section-header">
     <span class="section-title">⚡ Celle</span>
     <span id="cells-delta" style="font-size:0.65rem;color:var(--muted)">Δ —</span>
   </div>
@@ -811,17 +809,93 @@ const state = {
   power: 0,
 };
 
-// JBD BMS UUIDs (standard Xiaoxiang/JBD)
-const BMS_SERVICE   = '0000ff00-0000-1000-8000-00805f9b34fb';
-const BMS_CHAR_RX   = '0000ff01-0000-1000-8000-00805f9b34fb'; // notify
-const BMS_CHAR_TX   = '0000ff02-0000-1000-8000-00805f9b34fb'; // write
+// ═══════════════════════════════════════════════
+// MULTI-PROTOCOL BMS DEFINITIONS
+// ═══════════════════════════════════════════════
+const BMS_PROTOCOLS = {
 
-// JBD commands
-const CMD_BASIC = new Uint8Array([0xDD, 0xA5, 0x03, 0x00, 0xFF, 0xFD, 0x77]); // basic info
-const CMD_CELL  = new Uint8Array([0xDD, 0xA5, 0x04, 0x00, 0xFF, 0xFC, 0x77]); // cell voltages
+  JBD: {
+    name: 'JBD/Xiaoxiang',
+    filters: [
+      { namePrefix: 'JBD' }, { namePrefix: 'SP' },
+      { namePrefix: 'ChefCucco' }, { namePrefix: 'DG' },
+      { namePrefix: 'LLT' }, { namePrefix: 'xiaoxiang' }
+    ],
+    services: ['0000ff00-0000-1000-8000-00805f9b34fb'],
+    rxUUIDs:  ['0000ff01-0000-1000-8000-00805f9b34fb','0000ffe1-0000-1000-8000-00805f9b34fb'],
+    txUUIDs:  ['0000ff02-0000-1000-8000-00805f9b34fb','0000ffe2-0000-1000-8000-00805f9b34fb'],
+    cmdBasic: new Uint8Array([0xDD,0xA5,0x03,0x00,0xFF,0xFD,0x77]),
+    cmdCell:  new Uint8Array([0xDD,0xA5,0x04,0x00,0xFF,0xFC,0x77]),
+    pollMs: 2000,
+  },
 
-let rxBuffer = [];
+  JKBMS: {
+    name: 'JKBMS',
+    filters: [
+      { namePrefix: 'JK' }, { namePrefix: 'JKBMS' },
+      { namePrefix: 'JK-B' }
+    ],
+    services: [
+      '0000ffe0-0000-1000-8000-00805f9b34fb',
+      '0000ff00-0000-1000-8000-00805f9b34fb'
+    ],
+    rxUUIDs: ['0000ffe1-0000-1000-8000-00805f9b34fb'],
+    txUUIDs: ['0000ffe1-0000-1000-8000-00805f9b34fb'], // same char, notify+write
+    // JKBMS activation + info request
+    cmdBasic: new Uint8Array([0x4E,0x57,0x00,0x13,0x00,0x00,0x00,0x00,0x06,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x68,0x00,0x00,0x01,0x29]),
+    cmdCell: null, // cells come in same packet
+    pollMs: 2000,
+  },
+
+  DALY: {
+    name: 'Daly BMS',
+    filters: [
+      { namePrefix: 'Daly' }, { namePrefix: 'DALY' },
+      { namePrefix: 'DL-' }, { namePrefix: 'Smart BMS' }
+    ],
+    services: ['0000fff0-0000-1000-8000-00805f9b34fb'],
+    rxUUIDs: ['0000fff1-0000-1000-8000-00805f9b34fb'],
+    txUUIDs: ['0000fff2-0000-1000-8000-00805f9b34fb'],
+    // Daly: start(0xA5) + addr(0x40) + cmd(0x90=basic) + len(0x08) + 8 zeros + checksum
+    cmdBasic: new Uint8Array([0xA5,0x40,0x90,0x08,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x7D]),
+    cmdCell:  new Uint8Array([0xA5,0x40,0x95,0x08,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x82]),
+    pollMs: 2000,
+  },
+
+  ANT: {
+    name: 'ANT BMS',
+    filters: [
+      { namePrefix: 'ANT' }, { namePrefix: 'Ant' },
+      { namePrefix: 'ANTBMS' }
+    ],
+    services: ['0000ff00-0000-1000-8000-00805f9b34fb'],
+    rxUUIDs: ['0000ff01-0000-1000-8000-00805f9b34fb'],
+    txUUIDs: ['0000ff02-0000-1000-8000-00805f9b34fb'],
+    // ANT activation sequence
+    cmdBasic: new Uint8Array([0x5A,0x5A,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFE]),
+    cmdCell: null,
+    pollMs: 3000,
+  },
+
+  SEPLOS: {
+    name: 'Seplos',
+    filters: [
+      { namePrefix: 'Seplos' }, { namePrefix: 'SEPLOS' },
+      { namePrefix: 'SP20' }
+    ],
+    services: ['0000ffe0-0000-1000-8000-00805f9b34fb'],
+    rxUUIDs: ['0000ffe1-0000-1000-8000-00805f9b34fb'],
+    txUUIDs: ['0000ffe2-0000-1000-8000-00805f9b34fb'],
+    // Seplos MODBUS-like query
+    cmdBasic: new Uint8Array([0x7E,0x20,0x00,0x46,0x00,0x00,0xAD,0x5F,0x0D]),
+    cmdCell: null,
+    pollMs: 2000,
+  },
+};
+
+let detectedProtocol = null;
 let bmsInterval = null;
+let rxBuf = [];
 
 // ═══════════════════════════════════════════════
 // TOAST
@@ -1081,71 +1155,75 @@ async function toggleBluetooth() {
 
 async function connectBT() {
   if (!navigator.bluetooth) {
-    toast('❌ Web Bluetooth non supportato.\nUsa Chrome su Android.');
+    toast('❌ Web Bluetooth non supportato. Usa Chrome su Android.');
     return;
   }
   try {
     toast('🔵 Ricerca BMS...');
-    document.getElementById('bt-dot').className = 'status-dot searching';
+    updateGPSBars && document.getElementById('bt-dot') &&
+      (document.getElementById('bt-dot').className = 'status-dot searching');
+
+    // Collect all filters from all protocols
+    const allFilters = Object.values(BMS_PROTOCOLS).flatMap(p => p.filters);
+    const allServices = [...new Set(Object.values(BMS_PROTOCOLS).flatMap(p => p.services))];
 
     state.btDevice = await navigator.bluetooth.requestDevice({
-      filters: [
-        { name: 'ChefCucco' },
-        { namePrefix: 'JBD' },
-        { namePrefix: 'SP' },
-        { namePrefix: 'BMS' },
-        { namePrefix: 'DG' },
-      ],
-      optionalServices: [BMS_SERVICE, '0000ffe0-0000-1000-8000-00805f9b34fb']
+      filters: allFilters,
+      optionalServices: allServices
     });
 
     state.btDevice.addEventListener('gattserverdisconnected', onBTDisconnect);
-
     const server = await state.btDevice.gatt.connect();
 
-    // Try multiple known JBD/Xiaoxiang service UUIDs
-    let service = null;
-    const serviceUUIDs = [
-      '0000ff00-0000-1000-8000-00805f9b34fb',
-      '0000ffe0-0000-1000-8000-00805f9b34fb',
-    ];
-    for (const uuid of serviceUUIDs) {
-      try { service = await server.getPrimaryService(uuid); break; } catch(e) {}
-    }
-    if (!service) throw new Error('Servizio BMS non trovato');
-
-    // Try RX/TX char pairs
+    // Auto-detect protocol by trying each one
+    detectedProtocol = null;
     let rxChar = null;
-    const pairs = [
-      ['0000ff01-0000-1000-8000-00805f9b34fb','0000ff02-0000-1000-8000-00805f9b34fb'],
-      ['0000ffe1-0000-1000-8000-00805f9b34fb','0000ffe2-0000-1000-8000-00805f9b34fb'],
-    ];
-    for (const [rxUUID, txUUID] of pairs) {
-      try {
-        rxChar = await service.getCharacteristic(rxUUID);
-        state.btChar = await service.getCharacteristic(txUUID);
-        break;
-      } catch(e) {}
+
+    for (const [protoName, proto] of Object.entries(BMS_PROTOCOLS)) {
+      for (const serviceUUID of proto.services) {
+        try {
+          const service = await server.getPrimaryService(serviceUUID);
+          for (let i = 0; i < proto.rxUUIDs.length; i++) {
+            try {
+              rxChar = await service.getCharacteristic(proto.rxUUIDs[i]);
+              // For JKBMS rx==tx same char
+              if (proto.rxUUIDs[i] === proto.txUUIDs[i]) {
+                state.btChar = rxChar;
+              } else {
+                state.btChar = await service.getCharacteristic(proto.txUUIDs[i]);
+              }
+              detectedProtocol = protoName;
+              break;
+            } catch(e) {}
+          }
+          if (detectedProtocol) break;
+        } catch(e) {}
+      }
+      if (detectedProtocol) break;
     }
-    if (!rxChar || !state.btChar) throw new Error('Caratteristiche BMS non trovate');
+
+    if (!rxChar || !state.btChar || !detectedProtocol) {
+      throw new Error('Protocollo BMS non riconosciuto');
+    }
 
     await rxChar.startNotifications();
     rxChar.addEventListener('characteristicvaluechanged', onBMSData);
 
     state.btConnected = true;
+    const proto = BMS_PROTOCOLS[detectedProtocol];
     document.getElementById('bt-dot').className = 'status-dot connected';
-    document.getElementById('bt-label').textContent = state.btDevice.name || 'BMS';
+    document.getElementById('bt-label').textContent = proto.name;
     document.getElementById('btn-bt').classList.add('connected');
     document.getElementById('btn-bt').textContent = '✓ BMS';
-    toast('✅ BMS connesso!');
+    toast('✅ ' + proto.name + ' connesso!');
 
-    // Poll every 2s
-    await sendBMSCommand(CMD_BASIC);
-    await sendBMSCommand(CMD_CELL);
-    bmsInterval = setInterval(async () => {
-      await sendBMSCommand(CMD_BASIC);
-      await sendBMSCommand(CMD_CELL);
-    }, 2000);
+    // Start polling
+    const poll = async () => {
+      await sendBMSCommand(proto.cmdBasic);
+      if (proto.cmdCell) await sendBMSCommand(proto.cmdCell);
+    };
+    await poll();
+    bmsInterval = setInterval(poll, proto.pollMs);
 
   } catch(e) {
     document.getElementById('bt-dot').className = 'status-dot';
@@ -1178,77 +1256,174 @@ async function sendBMSCommand(cmd) {
   } catch(e) {}
 }
 
-// ── JBD Parser ──
-let rxBuf = [];
-
+// ═══════════════════════════════════════════════
+// MULTI-PROTOCOL BMS PARSER
+// ═══════════════════════════════════════════════
 function onBMSData(event) {
   const bytes = new Uint8Array(event.target.value.buffer);
   rxBuf.push(...bytes);
+  if (rxBuf.length > 512) rxBuf = rxBuf.slice(-256); // prevent overflow
 
-  // Look for complete packet: start=0xDD, end=0x77
+  switch(detectedProtocol) {
+    case 'JBD':    parseJBD(); break;
+    case 'JKBMS':  parseJK(); break;
+    case 'DALY':   parseDaly(); break;
+    case 'ANT':    parseANT(); break;
+    case 'SEPLOS': parseSeplos(); break;
+  }
+}
+
+// ── Helpers ──
+function readInt16(hi, lo) {
+  let val = (hi << 8) | lo;
+  if (val & 0x8000) val -= 0x10000;
+  return val;
+}
+function readU16(buf, offset) { return (buf[offset] << 8) | buf[offset+1]; }
+function applyBMSState(voltage, current, remainAh, fullAh, soc, cells) {
+  state.voltage  = voltage;
+  state.current  = current;
+  state.remainAh = remainAh;
+  state.fullAh   = fullAh > 0 ? fullAh : state.fullAh;
+  state.soc      = soc;
+  state.power    = Math.abs(voltage * current);
+  if (cells && cells.length) state.cells = cells;
+  updateBatteryUI();
+  if (cells && cells.length) updateCellsUI();
+  document.getElementById('batt-updated').textContent =
+    new Date().toLocaleTimeString('it-IT');
+}
+
+// ── JBD/Xiaoxiang ──
+function parseJBD() {
   while (rxBuf.length >= 7) {
     const start = rxBuf.indexOf(0xDD);
     if (start === -1) { rxBuf = []; break; }
     if (start > 0) rxBuf = rxBuf.slice(start);
     if (rxBuf.length < 4) break;
-
     const len = rxBuf[3];
-    const total = 4 + len + 3; // header(4) + data + checksum(2) + end(1)
+    const total = 4 + len + 3;
     if (rxBuf.length < total) break;
-
-    const packet = rxBuf.splice(0, total);
-    parseJBDPacket(packet);
+    const p = rxBuf.splice(0, total);
+    if (p[p.length-1] !== 0x77 || p[2] !== 0x00) continue;
+    const d = p.slice(4, p.length - 3);
+    if (p[1] === 0x03 && d.length >= 20) {
+      applyBMSState(
+        readU16(d,0)/100, readInt16(d[2],d[3])/100,
+        readU16(d,4)/100, readU16(d,6)/100, d[19], null
+      );
+    } else if (p[1] === 0x04) {
+      const cells = [];
+      for (let i=0; i<Math.floor(d.length/2); i++)
+        cells.push(readU16(d,i*2)/1000);
+      state.cells = cells; updateCellsUI();
+    }
   }
 }
 
-function parseJBDPacket(p) {
-  if (p[0] !== 0xDD) return;
-  if (p[p.length-1] !== 0x77) return;
+// ── JKBMS ──
+function parseJK() {
+  // JKBMS response starts with 0x4E 0x57
+  const start = rxBuf.findIndex((b,i) => b===0x4E && rxBuf[i+1]===0x57);
+  if (start === -1 || rxBuf.length - start < 11) return;
+  const len = readU16(rxBuf, start+2);
+  if (rxBuf.length - start < len) return;
+  const p = rxBuf.splice(start, len);
 
-  const cmd = p[1];
-  const status = p[2];
-  if (status !== 0x00) return; // error response
-
-  const data = p.slice(4, p.length - 3);
-
-  if (cmd === 0x03) parseBMSBasic(data);
-  if (cmd === 0x04) parseBMSCells(data);
-}
-
-function parseBMSBasic(d) {
-  if (d.length < 27) return;
-
-  const voltage  = ((d[0] << 8) | d[1]) / 100;  // V
-  const current  = readInt16(d[2], d[3]) / 100;   // A (signed)
-  const remainAh = ((d[4] << 8) | d[5]) / 100;   // Ah
-  const fullAh   = ((d[6] << 8) | d[7]) / 100;   // Ah
-  const soc      = d[19];                          // %
-
-  state.voltage  = voltage;
-  state.current  = current;
-  state.remainAh = remainAh;
-  state.fullAh   = fullAh;
-  state.soc      = soc;
-  state.power    = Math.abs(voltage * current);
-
-  updateBatteryUI();
-  document.getElementById('batt-updated').textContent =
-    new Date().toLocaleTimeString('it-IT');
-}
-
-function parseBMSCells(d) {
-  const count = Math.floor(d.length / 2);
-  state.cells = [];
-  for (let i = 0; i < count; i++) {
-    state.cells.push(((d[i*2] << 8) | d[i*2+1]) / 1000);
+  // Parse JKBMS data fields (TLV format)
+  let i = 11;
+  let voltage=0, current=0, soc=0, cells=[];
+  while (i < p.length - 5) {
+    const id = p[i]; const l = p[i+1];
+    const val = p.slice(i+2, i+2+l);
+    if (id === 0x83 && l === 2) voltage = readU16(val,0) / 100;
+    else if (id === 0x84 && l === 2) {
+      current = readU16(val,0) / 100;
+      if (current > 3000) current = -(65535 - current*100)/100; // signed
+    }
+    else if (id === 0x85 && l === 1) soc = val[0];
+    else if (id === 0x79) {
+      const cellCount = val[0];
+      for (let c=0; c<cellCount; c++)
+        cells.push(readU16(val, 1+c*3+1)/1000);
+    }
+    i += 2 + l;
   }
-  updateCellsUI();
+  if (voltage > 0)
+    applyBMSState(voltage, current, soc/100*state.fullAh, state.fullAh, soc, cells);
 }
 
-function readInt16(hi, lo) {
-  let val = (hi << 8) | lo;
-  if (val & 0x8000) val -= 0x10000;
-  return val;
+// ── Daly BMS ──
+function parseDaly() {
+  while (rxBuf.length >= 13) {
+    const start = rxBuf.indexOf(0xA5);
+    if (start === -1) { rxBuf = []; break; }
+    if (start > 0) rxBuf = rxBuf.slice(start);
+    if (rxBuf.length < 4) break;
+    const len = rxBuf[3];
+    const total = 4 + len + 1;
+    if (rxBuf.length < total) break;
+    const p = rxBuf.splice(0, total);
+    const cmd = p[2]; const d = p.slice(4, 4+len);
+    if (cmd === 0x90 && d.length >= 10) {
+      const voltage = readU16(d,0) / 10;
+      const current = (readU16(d,4) - 30000) / 10;
+      const soc = readU16(d,8) / 10;
+      applyBMSState(voltage, current, soc/100*state.fullAh, state.fullAh, Math.round(soc), null);
+    } else if (cmd === 0x95 && d.length >= 3) {
+      // Cell voltages: 3 cells per frame
+      const frame = d[0]; const count = d[1];
+      if (!state.cells || state.cells.length < count)
+        state.cells = new Array(count).fill(0);
+      const idx = (frame-1)*3;
+      for (let c=0; c<3 && idx+c<count; c++)
+        state.cells[idx+c] = readU16(d, 2+c*2)/1000;
+      updateCellsUI();
+    }
+  }
+}
+
+// ── ANT BMS ──
+function parseANT() {
+  // ANT response: 0x5A 0xA5 header
+  const start = rxBuf.findIndex((b,i) => b===0x5A && rxBuf[i+1]===0xA5);
+  if (start === -1 || rxBuf.length - start < 140) return;
+  const p = rxBuf.splice(start, 140);
+  const voltage = readU16(p, 4) / 100;
+  const current = readInt16(p[8], p[9]) / 10;
+  const soc = p[103];
+  const cells = [];
+  for (let c=0; c<24; c++) {
+    const v = readU16(p, 6+c*2)/1000;
+    if (v > 0.5) cells.push(v);
+  }
+  if (voltage > 0)
+    applyBMSState(voltage, current, soc/100*state.fullAh, state.fullAh, soc, cells);
+}
+
+// ── Seplos ──
+function parseSeplos() {
+  const start = rxBuf.indexOf(0x7E);
+  if (start === -1 || rxBuf.length - start < 18) return;
+  const end = rxBuf.indexOf(0x0D, start);
+  if (end === -1) return;
+  const p = rxBuf.splice(start, end-start+1);
+  if (p.length < 18) return;
+  // Simplified Seplos v2 parse
+  const dataLen = readU16(p, 3);
+  if (p.length < 7 + dataLen) return;
+  const d = p.slice(7, 7+dataLen);
+  const cellCount = d[0];
+  const cells = [];
+  for (let c=0; c<cellCount; c++) cells.push(readU16(d,1+c*2)/1000);
+  const base = 1 + cellCount*2;
+  if (d.length > base+10) {
+    const voltage = readU16(d,base+2)/100;
+    const current = readInt16(d[base+4],d[base+5])/100;
+    const soc = readU16(d,base+8)/10;
+    if (voltage > 0)
+      applyBMSState(voltage, current, soc/100*state.fullAh, state.fullAh, Math.round(soc), cells);
+  }
 }
 
 // ── BMS UI ──
@@ -1631,6 +1806,30 @@ async function releaseWakeLock() {
   btn.classList.remove('active');
   btn.textContent = '😴';
   toast('🌙 Risparmio energetico riattivato');
+}
+
+// ═══════════════════════════════════════════════
+// TRIP SAVE (unlimited)
+// ═══════════════════════════════════════════════
+function saveTrip() {
+  if (state.distance < 50) return;
+  const elapsed = state.startTime ? Math.floor((Date.now() - state.startTime) / 1000) : 0;
+  if (elapsed < 10) return;
+  const avg = state.speedSamples.length
+    ? state.speedSamples.reduce((a,b)=>a+b,0) / state.speedSamples.length : 0;
+  const trip = {
+    date: new Date().toLocaleDateString('it-IT', {day:'2-digit',month:'2-digit',year:'numeric'}),
+    time: new Date().toLocaleTimeString('it-IT', {hour:'2-digit',minute:'2-digit'}),
+    distance: (state.distance / 1000).toFixed(2),
+    duration: elapsed,
+    avgSpeed: avg.toFixed(1),
+    maxSpeed: state.maxSpeed.toFixed(0),
+  };
+  const history = JSON.parse(localStorage.getItem('ebike-history') || '[]');
+  history.unshift(trip);
+  if (history.length > 200) history.pop();
+  localStorage.setItem('ebike-history', JSON.stringify(history));
+  toast('💾 Viaggio salvato!');
 }
 
 // Start clock immediately
