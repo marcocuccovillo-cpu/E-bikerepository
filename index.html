@@ -615,6 +615,30 @@
 </head>
 <body>
 
+<script>
+// Block pull-to-refresh completely
+document.addEventListener('touchstart', function(e) {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
+
+let lastY = 0;
+document.addEventListener('touchmove', function(e) {
+  const el = e.target.closest('#main-content');
+  if (!el) {
+    e.preventDefault();
+    return;
+  }
+  const y = e.touches[0].clientY;
+  const scrollTop = el.scrollTop;
+  const maxScroll = el.scrollHeight - el.clientHeight;
+  // Block overscroll at top and bottom
+  if ((scrollTop <= 0 && y > lastY) || (scrollTop >= maxScroll && y < lastY)) {
+    e.preventDefault();
+  }
+  lastY = y;
+}, { passive: false });
+</script>
+
 <header>
   <h1>⚡ E-Bike</h1>
   <div class="header-right">
