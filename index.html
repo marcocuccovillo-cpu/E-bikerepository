@@ -643,7 +643,7 @@ document.addEventListener('touchmove', function(e) {
 </script>
 
 <header>
-  <h1>⚡ VoltPilot</h1>
+  <h1>⚡ E-Bike</h1>
   <div class="header-right">
     <span id="bt-dot" class="status-dot"></span>
     <span id="bt-label">BMS</span>
@@ -979,21 +979,34 @@ function stopGPS() {
 }
 
 function onGPS(pos) {
-  updateGPSBars('connected');
+  updateGPSBars('connected', pos.coords.accuracy);
   document.getElementById('gps-label').textContent = 'GPS';
 
-  const spd = pos.coords.speed != null ? pos.coords.speed * 3.6 : 0;
-  setSpeed(spd);
+  // Speed: use device value if available, else compute from positions
+  let spd = 0;
+  if (pos.coords.speed != null && pos.coords.speed >= 0) {
+    spd = pos.coords.speed * 3.6;
+  }
 
   if (state.lastPos) {
     const d = haversine(state.lastPos, pos.coords);
-    state.distance += d;
-    document.getElementById('dist-display').innerHTML =
-      (state.distance / 1000).toFixed(2) + ' <span>km</span>';
-    document.getElementById('dist-display2').textContent = (state.distance / 1000).toFixed(2) + ' km';
-
+    if (d > 1) {
+      state.distance += d;
+      const km = (state.distance / 1000).toFixed(2);
+      document.getElementById('dist-display').innerHTML = km + ' <span>km</span>';
+      const d2 = document.getElementById('dist-display2');
+      if (d2) d2.textContent = km + ' km';
+      // Fallback speed from distance/time
+      if (spd === 0 && state.lastPosTime) {
+        const dt = (pos.timestamp - state.lastPosTime) / 1000;
+        if (dt > 0) spd = (d / dt) * 3.6;
+      }
+    }
   }
+
+  setSpeed(Math.min(spd, 99));
   state.lastPos = pos.coords;
+  state.lastPosTime = pos.timestamp;
 }
 
 function onGPSError(err) {
