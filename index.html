@@ -823,6 +823,7 @@ const state = {
   maxSpeed: 0,
   distance: 0,
   lastPos: null,
+  lastPosTime: null,
   startTime: null,
   timerInterval: null,
   speedSamples: [],
@@ -1167,6 +1168,7 @@ function resetTrip() {
   state.startTime = Date.now();
   state.speedSamples = [];
   state.lastPos = null;
+  state.lastPosTime = null;
   document.getElementById('dist-display').innerHTML = '0.00 <span>km</span>';
   document.getElementById('dist-display2').textContent = '0.00 km';
   document.getElementById('maxspeed-display2') && (document.getElementById('maxspeed-display2').textContent = '—');
