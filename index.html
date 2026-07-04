@@ -642,7 +642,7 @@ document.addEventListener('touchmove', function(e) {
 </script>
 
 <header>
-  <h1>⚡ VoltPilot</h1>
+  <h1>⚡ E-Bike</h1>
   <div class="header-right">
     <span id="bt-dot" class="status-dot"></span>
     <span id="bt-label">BMS</span>
@@ -1009,7 +1009,7 @@ function setSpeed(spd) {
   state.speedSamples.push(spd);
   if (state.speedSamples.length > 100) state.speedSamples.shift();
   const avg = state.speedSamples.reduce((a,b)=>a+b,0) / state.speedSamples.length;
-  document.getElementById('avgspeed-display').textContent = avg.toFixed(1) + ' km/h';
+  const avgEl = document.getElementById('avgspeed-display'); if (avgEl) avgEl.textContent = avg.toFixed(1) + ' km/h';
 
   // Display
   document.getElementById('speed-display').textContent = spd.toFixed(0);
